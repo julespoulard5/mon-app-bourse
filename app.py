@@ -1,60 +1,36 @@
+import streamlit as st
 import yfinance as yf
-import requests
-import time
+import pandas as pd
 
-# --- CONFIGURATION ---
-TOKEN_TELEGRAM = "VOTRE_TOKEN_TELEGRAM"
-CHAT_ID = "VOTRE_CHAT_ID"
-WATCHLIST = ["AAPL", "TSLA", "MC.PA", "ASML", "NVDA"] # Ajoutez vos actions ici
+st.set_page_config(page_title="StockVision IA", layout="wide")
+st.title("📈 StockVision IA")
 
-def envoyer_alerte(message):
-    url = f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    requests.post(url, json=payload)
+ticker = st.sidebar.text_input("Symbole (ex: AAPL, MC.PA)", "AAPL").upper()
 
-def analyser_opportunite(ticker):
+if ticker:
     stock = yf.Ticker(ticker)
     info = stock.info
     
-    prix_actuel = info.get('currentPrice')
-    cible_basse = info.get('targetLowPrice')
+    # --- ZONE ALERTE & IA ---
+    price = info.get('currentPrice', 0)
+    target_low = info.get('targetLowPrice', 0)
+    
+    if price <= target_low and target_low != 0:
+        st.error(f"🚨 ALERTE : {ticker} est en dessous de sa cible basse ({target_low}$)")
+    
+    st.subheader("🤖 Analyse de l'IA")
     roe = info.get('returnOnEquity', 0)
-    per = info.get('trailingPE', 100)
-    nom = info.get('longName', ticker)
+    if roe > 0.15:
+        st.success(f"L'IA valide la rentabilité : ROE excellent de {roe*100:.1f}%.")
+    else:
+        st.warning(f"L'IA conseille la prudence : ROE de {roe*100:.1f}% est moyen.")
 
-    # Condition de "Solde" : Prix sous la cible basse des analystes
-    if prix_actuel and cible_basse and prix_actuel <= cible_basse:
-        
-        # LOGIQUE IA : Est-ce un bon achat ?
-        # Une entreprise solide a généralement un ROE > 12% et un PER raisonnable
-        if roe > 0.12 and per < 25:
-            score_ia = "✅ OPPORTUNITÉ FORTE (Fondamentaux solides)"
-            raison = f"L'entreprise est très rentable (ROE: {roe*100:.1f}%) et le prix est bradé par rapport aux prévisions."
-        else:
-            score_ia = "⚠️ ATTENTION (Risque élevé)"
-            raison = f"Le prix est bas, mais la rentabilité est faible (ROE: {roe*100:.1f}%). Possible 'Value Trap'."
+    # --- METRIQUES ---
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Prix", f"{price}$")
+    col2.metric("PER", f"{info.get('trailingPE', 'N/A')}x")
+    col3.metric("EBITDA", f"{info.get('ebitda', 0)/1e9:.1f}Md")
+    col4.metric("FCF", f"{info.get('freeCashflow', 0)/1e9:.2f}Md")
 
-        message = (
-            f"🚨 *ALERTE SOLDE : {nom} ({ticker})*\n\n"
-            f"💰 Prix Actuel : {prix_actuel}$\n"
-            f"🎯 Cible Basse : {cible_basse}$\n"
-            f"📊 PER : {per}x | ROE : {roe*100:.1f}%\n\n"
-            f"🤖 *Analyse IA :* {score_ia}\n"
-            f"📝 *Pourquoi :* {raison}"
-        )
-        return message
-    return None
-
-def executer_surveillance():
-    print("🚀 Bot de surveillance démarré...")
-    for ticker in WATCHLIST:
-        print(f"Vérification de {ticker}...")
-        alerte = analyser_opportunite(ticker)
-        if alerte:
-            envoyer_alerte(alerte)
-    print("✅ Vérification terminée.")
-
-# Le bot vérifie toutes les 4 heures (14400 secondes)
-while True:
-    executer_surveillance()
-    time.sleep(14400) 
+    # --- GRAPHIQUE ---
+    st.line_chart(stock.history(period="1y")['Close'])
