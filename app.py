@@ -2,35 +2,47 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
+# Configuration de l'interface
 st.set_page_config(page_title="StockVision IA", layout="wide")
-st.title("📈 StockVision IA")
+st.title("📈 StockVision IA : Analyse Boursière")
 
-ticker = st.sidebar.text_input("Symbole (ex: AAPL, MC.PA)", "AAPL").upper()
+# Barre latérale pour choisir l'action
+ticker = st.sidebar.text_input("Entrez un symbole (ex: AAPL, MC.PA, TSLA)", "AAPL").upper()
 
 if ticker:
     stock = yf.Ticker(ticker)
     info = stock.info
     
-    # --- ZONE ALERTE & IA ---
+    # --- ANALYSE IA ET ALERTES ---
     price = info.get('currentPrice', 0)
     target_low = info.get('targetLowPrice', 0)
     
-    if price <= target_low and target_low != 0:
-        st.error(f"🚨 ALERTE : {ticker} est en dessous de sa cible basse ({target_low}$)")
-    
-    st.subheader("🤖 Analyse de l'IA")
+    if target_low and price <= target_low:
+        st.error(f"🚨 ALERTE SOLDE : Le prix ({price}$) est inférieur à la cible basse ({target_low}$)")
+    else:
+        st.success(f"✅ Prix actuel : {price}$ (Au-dessus du support analyste)")
+
+    st.subheader("🤖 Diagnostic de l'Intelligence Artificielle")
     roe = info.get('returnOnEquity', 0)
     if roe > 0.15:
-        st.success(f"L'IA valide la rentabilité : ROE excellent de {roe*100:.1f}%.")
+        st.info(f"Analyse IA : Entreprise très performante. Le rendement (ROE) de {roe*100:.1f}% est un signal d'achat solide.")
     else:
-        st.warning(f"L'IA conseille la prudence : ROE de {roe*100:.1f}% est moyen.")
+        st.warning(f"Analyse IA : Prudence recommandée. La rentabilité est de {roe*100:.1f}%.")
 
-    # --- METRIQUES ---
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Prix", f"{price}$")
-    col2.metric("PER", f"{info.get('trailingPE', 'N/A')}x")
-    col3.metric("EBITDA", f"{info.get('ebitda', 0)/1e9:.1f}Md")
-    col4.metric("FCF", f"{info.get('freeCashflow', 0)/1e9:.2f}Md")
+    # --- INDICATEURS ---
+    st.divider()
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("PER", f"{info.get('trailingPE', 'N/A')}x")
+    c2.metric("EBITDA", f"{info.get('ebitda', 0)/1e9:.1f} Md")
+    c3.metric("Free Cash Flow", f"{info.get('freeCashflow', 0)/1e9:.1f} Md")
+    c4.metric("Cible Moyenne", f"{info.get('targetMeanPrice', 'N/A')}$")
 
-    # --- GRAPHIQUE ---
-    st.line_chart(stock.history(period="1y")['Close'])
+    # --- HISTORIQUE ---
+    st.subheader(f"Évolution de {ticker} sur 1 an")
+    hist = stock.history(period="1y")
+    st.line_chart(hist['Close'])
+
+    # --- DESCRIPTION ---
+    with st.expander("Voir l'histoire de l'entreprise"):
+        st.write(info.get('longBusinessSummary', "Pas de description disponible."))
+
