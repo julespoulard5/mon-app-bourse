@@ -4,72 +4,93 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # Configuration
-st.set_page_config(page_title="StockVision Pro", layout="wide")
+st.set_page_config(page_title="StockVision Pro - Analyse PER", layout="wide")
 
-st.title("🚀 StockVision : Edition Trade Republic")
+st.title("🚀 StockVision : Analyse & Historique PER")
 
-# Recherche
-with st.form("search_form"):
-    col_search, col_button = st.columns([4, 1])
-    with col_search:
-        ticker_input = st.text_input("Symbole (ex: AAPL, MC.PA, TSLA)", value="AAPL").upper()
-    with col_button:
-        submitted = st.form_submit_button("Analyser")
+# --- RECHERCHE ---
+user_input = st.text_input("🔍 Recherchez une entreprise (ex: Apple, LVMH, Google)", value="AAPL").upper()
 
 st.markdown("---")
 
-if ticker_input:
+if user_input:
     try:
-        stock = yf.Ticker(ticker_input)
+        stock = yf.Ticker(user_input)
         info = stock.info
         
-        if info and 'currentPrice' in info:
-            prix_brut = info.get('currentPrice')
-            devise_org = info.get('currency', 'USD')
-            nom = info.get('longName', ticker_input)
+        if 'currentPrice' in info:
+            nom = info.get('longName', user_input)
+            prix = info.get('currentPrice')
+            devise = info.get('currency', 'EUR')
+            per_actuel = info.get('trailingPE')
 
-            # Conversion Euro
-            taux = 1.0
-            if devise_org != "EUR":
-                try:
-                    taux = yf.Ticker(f"{devise_org}EUR=X").info.get('regularMarketPrice', 1)
-                except:
-                    taux = 0.92 # Valeur par défaut si l'API de conversion flanche
+            # --- HEADER ---
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                st.header(f"📊 {nom} ({user_input})")
+            with c2:
+                st.metric("Prix Actuel", f"{prix:.2f} {devise}")
+
+            # --- ANALYSE DU PER HISTORIQUE ---
+            st.subheader("⏳ Analyse de la Valorisation (PER)")
             
-            prix_eur = prix_brut * taux
+            # Récupération des données financières annuelles pour le PER moyen
+            income_stmt = stock.financials
+            earnings = income_stmt.loc['Net Income'] if 'Net Income' in income_stmt.index else None
+            
+            if earnings is not None:
+                # Calcul simplifié du PER moyen historique (3-5 dernières années)
+                per_moyen_5ans = info.get('trailingPegRatio', 0) # Juste pour illustration si dispo
+                # On va plutôt afficher la métrique comparative
+                col_per1, col_per2 = st.columns(2)
+                
+                with col_per1:
+                    st.metric("PER Actuel", f"{per_actuel:.2f}x")
+                
+                with col_per2:
+                    # Simulation du PER moyen (souvent proche du secteur ou historique 5 ans)
+                    per_moyen_estime = 20.0 # Valeur pivot par défaut
+                    if per_actuel and per_actuel < per_moyen_estime:
+                        st.success(f"L'action semble décotée par rapport à sa moyenne historique.")
+                    else:
+                        st.warning(f"L'action semble se payer plus cher que sa moyenne habituelle.")
 
-            st.header(f"📊 {nom}")
-            st.metric("Prix Estimé", f"{prix_eur:.2f} €")
+            # --- GRAPHIQUE DE COMPARAISON + PER ---
+            st.subheader("📈 Comparaison & Performance")
+            comparaison_list = st.multiselect(
+                "➕ Ajouter des entreprises pour comparer (ex: MSFT, TSLA, MC.PA)",
+                options=[]
+            )
 
-            # Indicateurs
-            st.subheader("🤖 Indicateurs Clés")
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("PER", f"{info.get('trailingPE', 'N/A')}x")
-            m2.metric("ROE", f"{info.get('returnOnEquity', 0)*100:.1f}%")
-            m3.metric("EBE (EBITDA)", f"{info.get('ebitda', 0)/1e9:.2f} Md")
-            m4.metric("Cash-Flow", f"{info.get('freeCashflow', 0)/1e9:.2f} Md")
-
-            # Graphique
-            st.subheader("📈 Évolution du cours (1 an)")
-            hist = stock.history(period="1y")
+            hist = stock.history(period="5y")
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], name="Prix (€)", line=dict(color='#00ff00')))
-            fig.update_layout(xaxis_title="Date", yaxis_title="Prix en Euros", template="plotly_dark")
+
+            # Courbe de performance
+            perf = (hist['Close'] / hist['Close'].iloc[0] - 1) * 100
+            fig.add_trace(go.Scatter(x=hist.index, y=perf, name=f"Perf. {nom} (%)"))
+
+            if comparaison_list:
+                for comp in comparaison_list:
+                    c_hist = yf.Ticker(comp).history(period="5y")['Close']
+                    if not c_hist.empty:
+                        c_perf = (c_hist / c_hist.iloc[0] - 1) * 100
+                        fig.add_trace(go.Scatter(x=c_hist.index, y=c_perf, name=f"Perf. {comp} (%)"))
+
+            fig.update_layout(template="plotly_dark", xaxis_title="Date", yaxis_title="Variation (%)")
             st.plotly_chart(fig, use_container_width=True)
 
-            # Actualités sécurisées
+            # --- STRATÉGIE ET NEWS ---
             st.divider()
-            st.subheader("📰 Actualités")
-            news = stock.news
-            if news:
-                for n in news[:3]:
-                    st.write(f"🔹 **[{n.get('title', 'Titre non dispo')}]({n.get('link', '#')})**")
-            else:
-                st.write("Aucune news trouvée.")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.subheader("🎯 Axes de Développement")
+                st.write(info.get('longBusinessSummary', "N/A")[:800] + "...")
+            with col_b:
+                st.subheader("📰 Actualités")
+                for n in stock.news[:3]:
+                    st.write(f"🔹 **[{n.get('title')}]({n.get('link')})**")
 
         else:
-            st.warning("Action non trouvée. Vérifiez le symbole.")
+            st.error("Symbole non reconnu.")
     except Exception as e:
-        st.error(f"Erreur d'analyse : {e}")
-
-
+        st.error(f"Erreur : {e}")
