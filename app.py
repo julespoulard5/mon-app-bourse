@@ -2,47 +2,77 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-# Configuration de l'interface
-st.set_page_config(page_title="StockVision IA", layout="wide")
-st.title("📈 StockVision IA : Analyse Boursière")
+# Configuration de la page
+st.set_page_config(page_title="StockVision - Trade Republic", layout="wide")
 
-# Barre latérale pour choisir l'action
-ticker = st.sidebar.text_input("Entrez un symbole (ex: AAPL, MC.PA, TSLA)", "AAPL").upper()
+# --- BARRE DE RECHERCHE EN HAUT ---
+st.title("🚀 StockVision IA")
+ticker_input = st.text_input("🔍 Recherchez une action (ex: AAPL, TSLA, MC.PA)", "AAPL").upper()
 
-if ticker:
-    stock = yf.Ticker(ticker)
+st.markdown("---")
+
+if ticker_input:
+    stock = yf.Ticker(ticker_input)
     info = stock.info
     
-    # --- ANALYSE IA ET ALERTES ---
-    price = info.get('currentPrice', 0)
-    target_low = info.get('targetLowPrice', 0)
-    
-    if target_low and price <= target_low:
-        st.error(f"🚨 ALERTE SOLDE : Le prix ({price}$) est inférieur à la cible basse ({target_low}$)")
+    if 'currentPrice' in info:
+        # --- EN-TÊTE ---
+        nom = info.get('longName', ticker_input)
+        prix = info.get('currentPrice')
+        devise = info.get('currency', 'EUR')
+        
+        col_titre, col_prix = st.columns([3, 1])
+        with col_titre:
+            st.header(f"{nom}")
+        with col_prix:
+            st.metric("Prix actuel", f"{prix} {devise}")
+
+        # --- CALCULATEUR D'INVESTISSEMENT ---
+        with st.expander("💰 Calculateur Trade Republic"):
+            budget = st.number_input("Montant à investir (€)", min_value=0, value=1000)
+            nb_actions = budget / prix
+            st.write(f"Avec **{budget} €**, vous pouvez acheter environ **{nb_actions:.2f}** actions.")
+            
+            cible = info.get('targetMeanPrice')
+            if cible:
+                profit = (cible - prix) * nb_actions
+                st.write(f"📈 Si l'objectif de **{cible} {devise}** est atteint, votre profit serait de : **{profit:.2f} €**")
+
+        # --- DIAGNOSTIC IA ---
+        st.subheader("🤖 Analyse de l'IA")
+        roe = info.get('returnOnEquity', 0)
+        per = info.get('trailingPE', 0)
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            if roe > 0.15:
+                st.success(f"Rentabilité (ROE) : {roe*100:.1f}% - Excellent")
+            else:
+                st.warning(f"Rentabilité (ROE) : {roe*100:.1f}% - Moyen")
+        with c2:
+            if per < 20 and per > 0:
+                st.success(f"Valorisation (PER) : {per:.1f}x - Attrayant")
+            else:
+                st.info(f"Valorisation (PER) : {per:.1f}x - Standard")
+
+        # --- STATS TEMPS RÉEL ---
+        st.divider()
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("EBITDA (EBE)", f"{info.get('ebitda', 0)/1e9:.2f} Md")
+        m2.metric("Free Cash Flow", f"{info.get('freeCashflow', 0)/1e9:.2f} Md")
+        m3.metric("Dette/Capitaux", f"{info.get('debtToEquity', 'N/A')}")
+        m4.metric("Cible Basse", f"{info.get('targetLowPrice', 'N/A')} {devise}")
+
+        # --- GRAPHIQUE ---
+        st.subheader("📊 Graphique 1 an")
+        hist = stock.history(period="1y")
+        st.line_chart(hist['Close'])
+        
+        # --- NEWS ---
+        st.divider()
+        st.subheader("📰 Dernières Actualités")
+        for n in stock.news[:3]:
+            st.write(f"**[{n['title']}]({n['link']})**")
+
     else:
-        st.success(f"✅ Prix actuel : {price}$ (Au-dessus du support analyste)")
-
-    st.subheader("🤖 Diagnostic de l'Intelligence Artificielle")
-    roe = info.get('returnOnEquity', 0)
-    if roe > 0.15:
-        st.info(f"Analyse IA : Entreprise très performante. Le rendement (ROE) de {roe*100:.1f}% est un signal d'achat solide.")
-    else:
-        st.warning(f"Analyse IA : Prudence recommandée. La rentabilité est de {roe*100:.1f}%.")
-
-    # --- INDICATEURS ---
-    st.divider()
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("PER", f"{info.get('trailingPE', 'N/A')}x")
-    c2.metric("EBITDA", f"{info.get('ebitda', 0)/1e9:.1f} Md")
-    c3.metric("Free Cash Flow", f"{info.get('freeCashflow', 0)/1e9:.1f} Md")
-    c4.metric("Cible Moyenne", f"{info.get('targetMeanPrice', 'N/A')}$")
-
-    # --- HISTORIQUE ---
-    st.subheader(f"Évolution de {ticker} sur 1 an")
-    hist = stock.history(period="1y")
-    st.line_chart(hist['Close'])
-
-    # --- DESCRIPTION ---
-    with st.expander("Voir l'histoire de l'entreprise"):
-        st.write(info.get('longBusinessSummary', "Pas de description disponible."))
-
+        st.error("Action non trouvée. Vérifiez le symbole (ex: AIR.PA pour Airbus).")
