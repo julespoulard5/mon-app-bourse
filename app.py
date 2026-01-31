@@ -94,4 +94,16 @@ if ticker_input:
 
     except Exception as e:
         st.error(f"Erreur de connexion : {e}")
+            # --- ACTUALITÉS (Version sécurisée) ---
+            st.divider()
+            st.subheader("📰 Actualités récentes")
+            news = stock.news
+            if news:
+                for n in news[:3]:
+                    # On vérifie que 'title' et 'link' existent avant d'afficher
+                    titre = n.get('title', 'Titre non disponible')
+                    lien = n.get('link', '#')
+                    st.write(f"🔹 **[{titre}]({lien})**")
+            else:
+                st.write("Aucune actualité récente trouvée.")
 
