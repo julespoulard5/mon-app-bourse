@@ -9,35 +9,35 @@ translator = Translator()
 
 def traduire(texte):
     try:
-        # Traduction vers le français
+        # On traduit le titre en français
         return translator.translate(texte, dest='fr').text
     except:
-        return texte
+        return texte # Si erreur, on garde l'original
 
-# Config de la page
 st.set_page_config(page_title="StockVision Pro", layout="wide")
 
 st.title("🚀 StockVision Pro")
 
-# --- 1. BARRE DE RECHERCHE DYNAMIQUE (VRAI AUTO-COMPLETE) ---
-# On utilise une liste d'entreprises pour les suggestions
-SUGGESTIONS = {
-    "Apple": "AAPL", "Tesla": "TSLA", "Nvidia": "NVDA", "Microsoft": "MSFT",
-    "Google": "GOOGL", "Amazon": "AMZN", "LVMH": "MC.PA", "Hermès": "RMS.PA",
-    "Airbus": "AIR.PA", "TotalEnergies": "TTE.PA", "Renault": "RNO.PA"
-}
+# --- 1. BARRE DE RECHERCHE ÉPURÉE (SANS LISTE DÉROULANTE) ---
+# L'utilisateur tape son texte librement
+recherche = st.text_input("🔍 Recherchez une entreprise (ex: Apple, LVMH, Nvidia...)", value="").strip()
 
-recherche = st.text_input("🔍 Recherchez une action (ex: App...)", value="")
+# Petit dictionnaire d'aide pour les noms courants
+AIDE_RECHERCHE = {
+    "APPLE": "AAPL", "TESLA": "TSLA", "NVIDIA": "NVDA", "GOOGLE": "GOOGL",
+    "LVMH": "MC.PA", "AIRBUS": "AIR.PA", "HERMES": "RMS.PA", "TOTAL": "TTE.PA"
+}
 
 ticker_final = None
 if recherche:
-    # On filtre la liste selon ce que tu tapes
-    match = [n for n in SUGGESTIONS.keys() if recherche.lower() in n.lower()]
+    # On propose des suggestions SEULEMENT si l'utilisateur tape quelque chose
+    match = [nom for nom in AIDE_RECHERCHE.keys() if recherche.upper() in nom]
+    
     if match:
-        choix = st.selectbox("Sélectionnez l'entreprise :", match)
-        ticker_final = SUGGESTIONS[choix]
+        choix = st.radio("C'est l'une de ces entreprises ?", match, horizontal=True)
+        ticker_final = AIDE_RECHERCHE[choix]
     else:
-        # Si pas dans la liste, on prend le texte direct (ex: TSLA)
+        # Sinon on prend le code tapé directement (ex: AAPL)
         ticker_final = recherche.upper()
 
 st.markdown("---")
@@ -48,7 +48,7 @@ if ticker_final:
         info = stock.info
         nom = info.get('longName', ticker_final)
         
-        # --- EN-TÊTE ---
+        # --- HEADER PRIX ---
         c1, c2 = st.columns([3, 1])
         with c1:
             st.header(f"📊 {nom}")
@@ -56,12 +56,12 @@ if ticker_final:
             st.metric("Prix Actuel", f"{info.get('currentPrice', 0):.2f} €")
 
         # --- SÉLECTEUR DE PÉRIODE ---
-        periode_map = {"1J": "1d", "5J": "5d", "1M": "1mo", "1A": "1y", "MAX": "max"}
-        choix_p = st.select_slider("Période", options=list(periode_map.keys()), value="1A")
+        p_map = {"1J": "1d", "5J": "5d", "1M": "1mo", "1A": "1y", "MAX": "max"}
+        choix_p = st.select_slider("Période", options=list(p_map.keys()), value="1A")
         intervalle = "1m" if choix_p == "1J" else "1d"
 
-        # --- GRAPHIQUE INTERACTIF (FIGÉ AU TOUCHER) ---
-        hist = stock.history(period=periode_map[choix_p], interval=intervalle)
+        # --- 2. GRAPHIQUE INTERACTIF ET FIGÉ ---
+        hist = stock.history(period=p_map[choix_p], interval=intervalle)
         
         if not hist.empty:
             perf = (hist['Close'] / hist['Close'].iloc[0] - 1) * 100
@@ -72,28 +72,32 @@ if ticker_final:
                 x=hist.index, 
                 y=hist['Close'], 
                 line=dict(color=couleur, width=2),
-                hovertemplate="<b>%{x|%d %b %Y %H:%M}</b><br>Prix: %{y:.2f}€<extra></extra>"
+                hovertemplate="<b>%{x}</b><br>Prix: %{y:.2f}€<extra></extra>"
             ))
 
             fig.update_layout(
                 template="plotly_dark",
-                hovermode="x unified", # Affiche le prix là où tu touches
+                hovermode="x unified", # Affiche le prix et la date là où on touche
+                dragmode=False,        # Empêche de déplacer le graphique (reste figé)
                 xaxis=dict(showgrid=False, rangeslider=dict(visible=False)),
                 yaxis=dict(side="right", showgrid=True),
                 margin=dict(l=0, r=0, t=10, b=0),
-                dragmode=False # Empêche le graphique de bouger quand tu l'effleures
+                height=350
             )
             
-            st.plotly_chart(fig, use_container_width=True, config={'staticPlot': False, 'scrollZoom': False})
+            # Affichage avec interactivité mobile
+            st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': False})
 
-        # --- ACTUALITÉS EN FRANÇAIS ---
+        # --- 3. ACTUALITÉS EN FRANÇAIS ---
         st.divider()
-        st.subheader("📰 Dernières Actualités (Traduites)")
-        for n in stock.news[:3]:
-            titre_fr = traduire(n.get('title'))
-            st.markdown(f"**{titre_fr}**")
-            st.caption(f"Source: {n.get('publisher')} | [Lire l'article]({n.get('link')})")
+        st.subheader("📰 Actualités Récentes (Traduites)")
+        with st.spinner('Traduction des news...'):
+            for n in stock.news[:3]:
+                titre_fr = traduire(n.get('title'))
+                st.markdown(f"**{titre_fr}**")
+                st.caption(f"Source: {n.get('publisher')} | [Lire]({n.get('link')})")
 
     except Exception as e:
-        st.error("Action non trouvée. Vérifiez le symbole.")
+        st.error(f"Erreur de recherche. Vérifiez le symbole ou le nom.")
+
 
