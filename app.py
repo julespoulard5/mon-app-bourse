@@ -2,117 +2,115 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+from googletrans import Translator
 
-# Configuration de la page
+# Initialisation du traducteur
+translator = Translator()
+
+def traduire(texte):
+    try:
+        return translator.translate(texte, dest='fr').text
+    except:
+        return texte
+
+# Configuration de l'app
 st.set_page_config(page_title="StockVision Pro", layout="wide")
 
-# --- LISTE DE RÉFÉRENCE POUR LES SUGGESTIONS ---
-# Liste étendue des actions populaires (Tu peux en ajouter d'autres ici)
-SUGGESTIONS = [
-    "AAPL (Apple)", "MSFT (Microsoft)", "TSLA (Tesla)", "NVDA (NVIDIA)", 
-    "AMZN (Amazon)", "GOOGL (Google)", "META (Meta)", "NFLX (Netflix)",
-    "MC.PA (LVMH)", "OR.PA (L'Oréal)", "RMS.PA (Hermès)", "AIR.PA (Airbus)",
-    "TTE.PA (TotalEnergies)", "SAN.PA (Sanofi)", "BNP.PA (BNP Paribas)",
-    "ASML.AS (ASML)", "SAP.DE (SAP)", "SIE.DE (Siemens)", "VOW3.DE (Volkswagen)"
-]
+# --- UNIVERS D'ACTIONS ---
+@st.cache_data
+def get_stock_universe():
+    return [
+        "AAPL (Apple)", "GOOGL (Google)", "MSFT (Microsoft)", "TSLA (Tesla)", 
+        "NVDA (NVIDIA)", "AMZN (Amazon)", "META (Meta)", "NFLX (Netflix)",
+        "MC.PA (LVMH)", "OR.PA (L'Oréal)", "RMS.PA (Hermès)", "AIR.PA (Airbus)",
+        "TTE.PA (TotalEnergies)", "SAN.PA (Sanofi)", "BNP.PA (BNP Paribas)",
+        "ASML.AS (ASML)", "SAP.DE (SAP)", "SIE.DE (Siemens)", "VOW3.DE (Volkswagen)"
+    ]
 
-st.title("🚀 StockVision : Analyse & Comparaison Intuitive")
+universe = get_stock_universe()
 
-# --- 1. RECHERCHE PRINCIPALE AVEC AUTO-COMPLÉTION ---
-choix_principal = st.selectbox(
-    "🔍 Recherchez l'entreprise principale :",
-    options=[""] + SUGGESTIONS,
-    format_func=lambda x: x if x != "" else "Tapez le nom d'une entreprise...",
+st.title("🚀 StockVision Pro")
+
+# --- 1. RECHERCHE DYNAMIQUE ---
+main_choice = st.selectbox(
+    "🔍 Rechercher une entreprise :",
+    options=universe,
+    index=None,
+    placeholder="Tapez le nom ou le symbole...",
     key="main_search"
 )
 
-# Extraction du symbole (Ticker)
-ticker_principal = choix_principal.split(" (")[0] if " (" in choix_principal else choix_principal
+main_ticker = main_choice.split(" (")[0] if main_choice else None
 
-st.markdown("---")
-
-if ticker_principal:
+if main_ticker:
     try:
-        stock = yf.Ticker(ticker_principal)
+        stock = yf.Ticker(main_ticker)
         info = stock.info
+        nom = info.get('longName', main_ticker)
         
-        if 'currentPrice' in info:
-            nom = info.get('longName', ticker_principal)
-            prix = info.get('currentPrice')
-            devise = info.get('currency', 'EUR')
-            per_actuel = info.get('trailingPE')
-            per_moyen_hist = info.get('forwardPE', 20.0) # On utilise le Forward PE comme base de comparaison
+        # --- HEADER PRIX ---
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.header(f"📊 {nom}")
+        with c2:
+            st.metric("Prix Actuel", f"{info.get('currentPrice', 0):.2f} €")
 
-            # --- HEADER ---
-            col_t, col_p = st.columns([3, 1])
-            with col_t:
-                st.header(f"📊 {nom}")
-            with col_p:
-                st.metric("Prix Actuel", f"{prix:.2f} {devise}")
+        # --- 2. SÉLECTEUR DE PÉRIODE (STYLE TRADE REPUBLIC) ---
+        st.write("---")
+        periode_map = {"1J": "1d", "5J": "5d", "1M": "1mo", "1A": "1y", "MAX": "max"}
+        choix_p = st.select_slider("Période", options=list(periode_map.keys()), value="1A")
+        
+        intervalle = "1m" if choix_p == "1J" else "1d"
+        st.subheader(f"📈 Performance ({choix_p})")
 
-            # --- ANALYSE PER ---
-            st.subheader("⚖️ Valorisation (PER actuel vs historique)")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("PER Actuel", f"{per_actuel:.2f}x" if per_actuel else "N/A")
-            with c2:
-                st.metric("PER de Référence", f"{per_moyen_hist:.2f}x")
-            with c3:
-                if per_actuel and per_moyen_hist:
-                    diff = ((per_actuel - per_moyen_hist) / per_moyen_hist) * 100
-                    if diff < 0:
-                        st.success(f"DÉCOTE : -{abs(diff):.1f}%")
-                    else:
-                        st.warning(f"SURCOTE : +{diff:.1f}%")
+        # --- 3. SUPERPOSITION ---
+        compare_selections = st.multiselect(
+            "➕ Comparer avec une autre action :",
+            options=universe,
+            placeholder="Tapez pour ajouter..."
+        )
 
-            # --- 2. GRAPHIQUE AVEC "+" (SUGGESTIONS POUR COMPARAISON) ---
-            st.subheader("📈 Comparaison des performances (%)")
-            
-            # Ici on utilise aussi la liste de suggestions pour le comparateur
-            comparaison_list = st.multiselect(
-                "➕ Ajouter des entreprises pour comparer :",
-                options=SUGGESTIONS,
-                help="Sélectionnez d'autres entreprises pour superposer leurs graphiques."
-            )
-
-            # Données du graphique (période 1 an par défaut)
-            hist_p = stock.history(period="1y")['Close']
+        # Données
+        hist_main = stock.history(period=periode_map[choix_p], interval=intervalle)['Close']
+        
+        if not hist_main.empty:
             fig = go.Figure()
+            perf_main = (hist_main / hist_main.iloc[0] - 1) * 100
+            
+            # Couleur dynamique (Vert/Rouge)
+            couleur = '#00C805' if perf_main.iloc[-1] >= 0 else '#FF3B30'
+            
+            fig.add_trace(go.Scatter(
+                x=hist_main.index, y=perf_main, name=nom,
+                line=dict(color=couleur, width=3),
+                fill='tozeroy',
+                fillcolor=f"rgba(0, 200, 5, 0.1)" if couleur == '#00C805' else "rgba(255, 59, 48, 0.1)"
+            ))
 
-            # Courbe principale (Normalisée à 0% au début)
-            perf_p = (hist_p / hist_p.iloc[0] - 1) * 100
-            fig.add_trace(go.Scatter(x=hist_p.index, y=perf_p, name=nom, line=dict(width=3)))
-
-            # Ajout des courbes comparatives
-            if comparaison_list:
-                for comp in comparaison_list:
-                    t_comp = comp.split(" (")[0]
-                    hist_c = yf.Ticker(t_comp).history(period="1y")['Close']
-                    if not hist_c.empty:
-                        perf_c = (hist_c / hist_c.iloc[0] - 1) * 100
-                        fig.add_trace(go.Scatter(x=hist_c.index, y=perf_c, name=comp))
+            if compare_selections:
+                for selection in compare_selections:
+                    t_comp = selection.split(" (")[0]
+                    h_comp = yf.Ticker(t_comp).history(period=periode_map[choix_p], interval=intervalle)['Close']
+                    if not h_comp.empty:
+                        p_comp = (h_comp / h_comp.iloc[0] - 1) * 100
+                        fig.add_trace(go.Scatter(x=h_comp.index, y=p_comp, name=selection))
 
             fig.update_layout(
                 template="plotly_dark",
-                xaxis_title="Date",
-                yaxis_title="Variation du cours (%)",
-                hovermode="x unified"
+                yaxis=dict(title="Variation (%)", side="right"),
+                hovermode="x unified",
+                margin=dict(l=10, r=10, t=10, b=10)
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- STRATÉGIE & NEWS ---
-            st.divider()
-            col_left, col_right = st.columns(2)
-            with col_left:
-                st.subheader("🎯 Axes de Développement")
-                st.write(info.get('longBusinessSummary', "N/A")[:700] + "...")
-            with col_right:
-                st.subheader("📰 Actualités")
-                for n in stock.news[:3]:
-                    st.write(f"🔹 **[{n.get('title')}]({n.get('link')})**")
+        # --- 4. ACTUALITÉS TRADUITES ---
+        st.divider()
+        st.subheader("📰 Actualités en Direct (Traduites)")
+        with st.spinner('Traduction des dernières nouvelles...'):
+            for n in stock.news[:4]:
+                titre_fr = traduire(n.get('title'))
+                st.write(f"🔹 **{titre_fr}**")
+                st.caption(f"Source: {n.get('publisher')} | [Lire l'original]({n.get('link')})")
 
-        else:
-            st.error("Données non disponibles pour ce symbole.")
     except Exception as e:
-        st.error(f"Erreur : {e}")
-
+        st.error(f"Une erreur est survenue : {e}")
