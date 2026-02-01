@@ -3,4 +3,3 @@ yfinance
 pandas
 plotly
 googletrans==3.1.0a0
-
