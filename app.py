@@ -6,94 +6,83 @@ import plotly.graph_objects as go
 # Configuration Jules Trading
 st.set_page_config(page_title="Jules Trading", layout="wide")
 
+# --- CHARGEMENT DE LA BASE DE DONNÉES ÉLARGIE (Style Trade Republic) ---
+@st.cache_data
+def get_huge_stock_list():
+    # Liste étendue des actions les plus échangées (Europe & US)
+    return {
+        "Apple": "AAPL", "Tesla": "TSLA", "Nvidia": "NVDA", "Microsoft": "MSFT",
+        "Alphabet (Google)": "GOOGL", "Amazon": "AMZN", "Meta (Facebook)": "META",
+        "Netflix": "NFLX", "LVMH": "MC.PA", "L'Oréal": "OR.PA", "Hermès": "RMS.PA",
+        "Airbus": "AIR.PA", "TotalEnergies": "TTE.PA", "Sanofi": "SAN.PA", 
+        "BNP Paribas": "BNP.PA", "Société Générale": "GLE.PA", "Renault": "RNO.PA",
+        "Stellantis": "STLAM.PA", "Ferrari": "RACE.MI", "ASML": "ASML.AS",
+        "SAP": "SAP.DE", "Siemens": "SIE.DE", "Air Liquide": "AI.PA",
+        "Danone": "BN.PA", "Schneider Electric": "SU.PA", "Kering": "KER.PA",
+        "Bitcoin": "BTC-USD", "Ethereum": "ETH-USD", "Solana": "SOL-USD"
+    }
+
+stock_db = get_huge_stock_list()
+
 st.title("💹 Jules Trading")
 
-# --- 1. RECHERCHE UNIVERSELLE ---
-# On propose quelques suggestions, mais l'utilisateur peut taper n'importe quel Ticker
-SUGGESTIONS = ["AAPL", "TSLA", "NVDA", "MC.PA", "TTE.PA", "BTC-USD", "MSFT", "AMZN"]
-search_query = st.text_input("🔍 Recherchez une action, un indice ou une crypto (ex: Apple, LVMH, AAPL, BTC-USD)", value="").strip().upper()
+# --- 1. RECHERCHE DYNAMIQUE (LETTRE PAR LETTRE) ---
+# selectbox avec index=None et placeholder simule la barre de recherche TR
+choix = st.selectbox(
+    "🔍 Rechercher une action ou un symbole...",
+    options=list(stock_db.keys()),
+    index=None,
+    placeholder="Tapez le nom d'une entreprise...",
+    key="main_search"
+)
 
-# --- 2. LOGIQUE D'AFFICHAGE ACCUEIL (SI PAS DE RECHERCHE) ---
-if not search_query:
-    st.subheader("🔥 Opportunités du jour (Plus fortes variations)")
+# Récupération du ticker : soit depuis la liste, soit saisie libre si possible
+ticker_recherche = stock_db[choix] if choix else None
+
+# --- 2. ACCUEIL : TOP VOLATILITÉ (SI PAS DE RECHERCHE) ---
+if not ticker_recherche:
+    st.markdown("### 🔥 Opportunités du jour")
     
     @st.cache_data(ttl=3600)
     def get_market_movers():
-        # On scanne un échantillon représentatif pour trouver la volatilité
-        tickers = ["AAPL", "TSLA", "NVDA", "AMD", "META", "NFLX", "PYPL", "BABA", "MC.PA", "OR.PA", "AIR.PA"]
+        tickers = ["AAPL", "TSLA", "NVDA", "MC.PA", "TTE.PA", "NFLX", "BTC-USD", "OR.PA"]
         data = yf.download(tickers, period="2d", interval="1d", group_by='ticker', progress=False)
         movers = []
         for t in tickers:
             try:
-                hist = data[t]
-                change = ((hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
-                movers.append({'Ticker': t, 'Variation': change, 'Prix': hist['Close'].iloc[-1]})
+                h = data[t]
+                var = ((h['Close'].iloc[-1] - h['Close'].iloc[-2]) / h['Close'].iloc[-2]) * 100
+                movers.append({'Ticker': t, 'Variation': var, 'Prix': h['Close'].iloc[-1]})
             except: continue
         return pd.DataFrame(movers).sort_values(by='Variation', ascending=False)
 
-    try:
-        df_movers = get_market_movers()
-        top_hausses = df_movers.head(4)
-        top_baisses = df_movers.tail(4).iloc[::-1]
+    df_movers = get_market_movers()
+    c_up, c_down = st.columns(2)
+    with c_up:
+        for _, r in df_movers.head(4).iterrows():
+            st.success(f"**{r['Ticker']}** : +{r['Variation']:.2f}% ({r['Prix']:.2f} €/$)")
+    with c_down:
+        for _, r in df_movers.tail(4).iloc[::-1].iterrows():
+            st.error(f"**{r['Ticker']}** : {r['Variation']:.2f}% ({r['Prix']:.2f} €/$)")
 
-        col_up, col_down = st.columns(2)
-        with col_up:
-            st.write("📈 **Top Hausses**")
-            for _, row in top_hausses.iterrows():
-                st.success(f"**{row['Ticker']}** : {row['Variation']:.2f}% ({row['Prix']:.2f} €/$)")
-        with col_down:
-            st.write("📉 **Top Baisses**")
-            for _, row in top_baisses.iterrows():
-                st.error(f"**{row['Ticker']}** : {row['Variation']:.2f}% ({row['Prix']:.2f} €/$)")
-    except:
-        st.info("Chargement des données de marché...")
-
-# --- 3. ANALYSE DE L'ACTION SÉLECTIONNÉE ---
+# --- 3. ANALYSE DÉTAILLÉE ---
 else:
     try:
-        # On tente de trouver l'action
-        stock = yf.Ticker(search_query)
+        stock = yf.Ticker(ticker_recherche)
         info = stock.info
+        prix = info.get('currentPrice', 0)
+        devise = info.get('currency', 'EUR')
+
+        st.header(f"{info.get('longName', ticker_recherche)}")
+        st.subheader(f"{prix:.2f} {devise}")
+
+        # GRAPHIQUE INTERACTIF (Style Trade Republic)
+        p_map = {"1J": "1d", "5J": "5d", "1M": "1mo", "1A": "1y", "MAX": "max"}
+        sel_p = st.select_slider("Période", options=list(p_map.keys()), value="1A")
         
-        # Si Yahoo ne trouve pas par le nom, on prévient
-        if 'currentPrice' not in info:
-            st.warning(f"Aucun résultat précis pour '{search_query}'. Essayez avec le symbole exact (ex: AAPL pour Apple).")
-        else:
-            prix = info.get('currentPrice', 0)
-            devise = info.get('currency', 'EUR')
+        hist = stock.history(period=p_map[sel_p])
+        if not hist.empty:
+            perf = (hist['Close'] / hist['Close'].iloc[0] - 1) * 100
+            couleur = '#00C805' if perf.iloc[-1] >= 0 else '#FF3B30'
             
-            # HEADER
-            st.header(f"{info.get('longName', search_query)}")
-            st.subheader(f"{prix:.2f} {devise}")
-
-            # GRAPHIQUE INTERACTIF
-            p_map = {"1J": "1d", "5J": "5d", "1M": "1mo", "1A": "1y", "MAX": "max"}
-            sel_p = st.select_slider("Période", options=list(p_map.keys()), value="1A")
-            hist = stock.history(period=p_map[sel_p])
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], line=dict(color='#00C805', width=2), fill='tozeroy', name="Prix"))
-            fig.update_layout(template="plotly_dark", hovermode="x unified", dragmode=False, height=400, margin=dict(l=0,r=0,t=0,b=0))
-            st.plotly_chart(fig, use_container_width=True)
-
-            # RATIOS ET IA (Mémorisés)
-            st.divider()
-            c1, c2, c3 = st.columns(3)
-            per = info.get('trailingPE', 0)
-            roe = info.get('returnOnEquity', 0) * 100
-            target = info.get('targetMeanPrice', prix)
-            
-            c1.metric("PER Actuel", f"{per:.2f}x")
-            c2.metric("Rentabilité (ROE)", f"{roe:.2f}%")
-            c3.metric("Cible IA", f"{target:.2f} {devise}")
-
-            # EBE / EBITDA
-            st.subheader("📊 Performance Opérationnelle (EBE)")
-            try:
-                ebe = stock.quarterly_financials.loc['EBITDA'].head(10)[::-1]
-                st.bar_chart(ebe)
-            except:
-                st.write("Données trimestrielles indisponibles.")
-
-    except Exception as e:
-        st.error(f"Erreur : {e}")
+            fig = go
