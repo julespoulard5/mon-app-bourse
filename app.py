@@ -6,91 +6,104 @@ import plotly.graph_objects as go
 # Configuration Jules Trading
 st.set_page_config(page_title="Jules Trading", layout="wide")
 
-# --- NAVIGATION ---
+# --- BARRE LATÉRALE (NAVIGATION) ---
 with st.sidebar:
     st.title("👨‍💻 Jules Trading")
-    page = st.radio("Menu", ["🏠 Accueil & Recherche", "📰 Actualités & Analyse IA"])
+    page = st.radio("Menu", ["🏠 Accueil & Recherche", "📰 Le Flux & Analyse IA"])
     st.markdown("---")
-    st.caption("Version 3.0 - Lecture Directe")
+    st.caption("Version 4.0 - Intégration Totale")
 
 # --- BASE DE DONNÉES ACTIONS ---
 @st.cache_data
 def get_stock_list():
     return {
         "Apple": "AAPL", "Tesla": "TSLA", "Nvidia": "NVDA", "Microsoft": "MSFT",
-        "Alphabet (Google)": "GOOGL", "Amazon": "AMZN", "Meta": "META", "LVMH": "MC.PA", 
-        "Airbus": "AIR.PA", "TotalEnergies": "TTE.PA", "Bitcoin": "BTC-USD"
+        "Alphabet (Google)": "GOOGL", "Amazon": "AMZN", "Meta": "META", "Netflix": "NFLX",
+        "LVMH": "MC.PA", "L'Oréal": "OR.PA", "Hermès": "RMS.PA", "Airbus": "AIR.PA",
+        "TotalEnergies": "TTE.PA", "Sanofi": "SAN.PA", "BNP Paribas": "BNP.PA",
+        "ASML": "ASML.AS", "SAP": "SAP.DE", "Siemens": "SIE.DE", "Volkswagen": "VOW3.DE",
+        "Bitcoin": "BTC-USD", "Ethereum": "ETH-USD", "Solana": "SOL-USD"
     }
 
-# --- ANALYSE IA SIMPLIFIÉE ---
+# --- ANALYSE IA DES NEWS ---
 def get_ia_sentiment(text):
     text = text.lower()
-    if any(w in text for w in ['up', 'hausse', 'profit', 'gain', 'buy', 'achat', 'growth']):
-        return "🟢 POSITIF (BULLISH)", "L'IA prévoit une tendance haussière suite à cette annonce."
-    if any(w in text for w in ['down', 'baisse', 'chute', 'loss', 'perte', 'sell', 'inflation']):
-        return "🔴 NÉGATIF (BEARISH)", "L'IA identifie un risque de baisse immédiat."
-    return "🟡 NEUTRE", "Information stable, pas d'impact majeur sur le cours détecté."
+    if any(w in text for w in ['up', 'hausse', 'profit', 'gain', 'buy', 'achat', 'growth', 'record']):
+        return "🟢 BULLISH", "L'IA prévoit un impact positif sur le cours."
+    if any(w in text for w in ['down', 'baisse', 'chute', 'loss', 'perte', 'sell', 'inflation', 'risk']):
+        return "🔴 BEARISH", "L'IA identifie un risque de baisse ou de volatilité."
+    return "🟡 NEUTRE", "Information stable, pas d'impact majeur immédiat."
 
 # ==========================================
-# PAGE 1 : ACCUEIL & RECHERCHE
+# PAGE 1 : ACCUEIL & RECHERCHE (Avec Ratios)
 # ==========================================
 if page == "🏠 Accueil & Recherche":
-    st.title("💹 Analyse Boursière")
+    st.title("💹 Analyse & Ratios")
     db = get_stock_list()
-    choix = st.selectbox("Rechercher un titre...", options=list(db.keys()), index=None)
-    ticker = db[choix] if choix else None
+    choix = st.selectbox("🔍 Rechercher un titre...", options=list(db.keys()), index=None)
+    ticker_final = db[choix] if choix else None
 
-    if ticker:
+    if ticker_final:
         try:
-            stock = yf.Ticker(ticker)
-            # Utilisation de fast_info pour éviter le RateLimit de .info
-            price = stock.fast_info['last_price']
-            currency = stock.fast_info['currency']
-            
-            st.header(f"{choix} ({ticker})")
-            st.subheader(f"{price:.2f} {currency}")
+            stock = yf.Ticker(ticker_final)
+            # On récupère les infos une seule fois pour éviter le blocage
+            info = stock.info
+            prix = info.get('currentPrice', 0)
+            devise = info.get('currency', 'EUR')
 
-            # Graphique "Incroyable" conservé
-            p_map = {"1J": "1d", "1M": "1mo", "1A": "1y", "MAX": "max"}
+            st.header(f"{info.get('longName', choix)}")
+            st.subheader(f"{prix:.2f} {devise}")
+
+            # --- GRAPHIQUE INCROYABLE ---
+            p_map = {"1J": "1d", "5J": "5d", "1M": "1mo", "1A": "1y", "MAX": "max"}
             sel_p = st.select_slider("Période", options=list(p_map.keys()), value="1A")
             hist = stock.history(period=p_map[sel_p])
             
             if not hist.empty:
-                fig = go.Figure(go.Scatter(x=hist.index, y=hist['Close'], line=dict(color='#00C805', width=2), fill='tozeroy', fillcolor='rgba(0,200,5,0.1)'))
-                fig.update_layout(template="plotly_dark", hovermode="x unified", height=400, margin=dict(l=0,r=0,t=0,b=0))
-                st.plotly_chart(fig, use_container_width=True)
-        except Exception:
-            st.error("⚠️ Limite de requêtes atteinte. Réessayez dans 1 minute.")
+                perf = (hist['Close'] / hist['Close'].iloc[0] - 1) * 100
+                couleur = '#00C805' if perf.iloc[-1] >= 0 else '#FF3B30'
+                fig = go.Figure(go.Scatter(x=hist.index, y=hist['Close'], line=dict(color=couleur, width=2.5), fill='tozeroy', 
+                                         fillcolor=f"rgba(0, 200, 5, 0.1)" if couleur == '#00C805' else "rgba(255, 59, 48, 0.1)"))
+                fig.update_layout(template="plotly_dark", hovermode="x unified", dragmode=False, height=450, margin=dict(l=0,r=0,t=0,b=0))
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-# ==========================================
-# PAGE 2 : ACTUALITÉS (LECTURE DIRECTE)
-# ==========================================
-elif page == "📰 Actualités & Analyse IA":
-    st.title("📰 Le Flux Jules Trading")
-    
-    # On utilise des tickers stables pour le flux
-    categories = {"🇫🇷 France & USA": "^GSPC", "🌎 International": "GC=F", "💰 Finance & Crypto": "BTC-USD"}
-    
-    selected_tab = st.tabs(list(categories.keys()))
+            # --- RATIOS (PER, ROE) ---
+            st.divider()
+            m1, m2, m3 = st.columns(3)
+            m1.metric("PER Actuel", f"{info.get('trailingPE', 0):.2f}x")
+            m2.metric("Rentabilité (ROE)", f"{info.get('returnOnEquity', 0)*100:.2f}%")
+            m3.metric("PER Moyen (5 ans)", f"{info.get('forwardPE', 0):.2f}x")
 
-    for i, (name, t_code) in enumerate(categories.items()):
-        with selected_tab[i]:
+            # --- GRAPHIQUE EBE (EBITDA) ---
+            st.subheader("📊 Évolution de l'EBE (EBITDA)")
             try:
-                news = yf.Ticker(t_code).news
-                if not news:
-                    st.warning("Aucune info disponible pour le moment.")
-                else:
-                    for n in news[:8]: # Plus d'articles
-                        # Design "Card" pour lecture directe
+                ebe = stock.quarterly_financials.loc['EBITDA'].head(10)[::-1]
+                st.bar_chart(ebe)
+            except:
+                st.write("Données financières momentanément indisponibles.")
+
+        except Exception:
+            st.error("⚠️ Trop de requêtes. Attendez 30 secondes ou vérifiez la connexion.")
+
+# ==========================================
+# PAGE 2 : LE FLUX & ANALYSE IA
+# ==========================================
+elif page == "📰 Le Flux & Analyse IA":
+    st.title("📰 Le Journal Jules Trading")
+    tabs = st.tabs(["🇫🇷 France & USA", "🌎 International", "💰 Finance & Crypto"])
+    flux_map = {"🇫🇷 France & USA": "^GSPC", "🌎 International": "GC=F", "💰 Finance & Crypto": "BTC-USD"}
+
+    for tab, t_code in zip(tabs, flux_map.values()):
+        with tab:
+            try:
+                news_list = yf.Ticker(t_code).news
+                if news_list:
+                    for n in news_list[:6]:
                         with st.expander(f"📌 {n.get('title')}", expanded=True):
                             sentiment, explanation = get_ia_sentiment(n.get('title'))
-                            
                             c1, c2 = st.columns([1, 2])
-                            with c1:
-                                st.markdown(f"**Analyse IA :**\n\n{sentiment}")
-                            with c2:
-                                st.write(f"💡 {explanation}")
-                            
-                            st.caption(f"Source: {n.get('publisher')} | [Lien source]({n.get('link')})")
-            except Exception:
-                st.error("Flux temporairement indisponible.")
+                            with c1: st.info(f"**IA : {sentiment}**")
+                            with c2: st.write(f"💡 {explanation}")
+                            st.caption(f"Source: {n.get('publisher')} | [Lire l'original]({n.get('link')})")
+                else: st.write("Aucune news trouvée.")
+            except: st.error("Flux indisponible pour le moment.")
