@@ -11,7 +11,7 @@ with st.sidebar:
     st.title("👨‍💻 Jules Trading")
     page = st.radio("Menu", ["🏠 Accueil & Recherche", "📰 Le Flux & Analyse IA"])
     st.markdown("---")
-    st.caption("Version 4.0 - Intégration Totale")
+    st.caption("Version 5.0 - Stabilité Max")
 
 # --- BASE DE DONNÉES ACTIONS ---
 @st.cache_data
@@ -21,13 +21,12 @@ def get_stock_list():
         "Alphabet (Google)": "GOOGL", "Amazon": "AMZN", "Meta": "META", "Netflix": "NFLX",
         "LVMH": "MC.PA", "L'Oréal": "OR.PA", "Hermès": "RMS.PA", "Airbus": "AIR.PA",
         "TotalEnergies": "TTE.PA", "Sanofi": "SAN.PA", "BNP Paribas": "BNP.PA",
-        "ASML": "ASML.AS", "SAP": "SAP.DE", "Siemens": "SIE.DE", "Volkswagen": "VOW3.DE",
-        "Bitcoin": "BTC-USD", "Ethereum": "ETH-USD", "Solana": "SOL-USD"
+        "Bitcoin": "BTC-USD", "Ethereum": "ETH-USD"
     }
 
 # --- ANALYSE IA DES NEWS ---
 def get_ia_sentiment(text):
-    text = text.lower()
+    text = text.lower() if text else ""
     if any(w in text for w in ['up', 'hausse', 'profit', 'gain', 'buy', 'achat', 'growth', 'record']):
         return "🟢 BULLISH", "L'IA prévoit un impact positif sur le cours."
     if any(w in text for w in ['down', 'baisse', 'chute', 'loss', 'perte', 'sell', 'inflation', 'risk']):
@@ -35,7 +34,7 @@ def get_ia_sentiment(text):
     return "🟡 NEUTRE", "Information stable, pas d'impact majeur immédiat."
 
 # ==========================================
-# PAGE 1 : ACCUEIL & RECHERCHE (Avec Ratios)
+# PAGE 1 : ACCUEIL & RECHERCHE
 # ==========================================
 if page == "🏠 Accueil & Recherche":
     st.title("💹 Analyse & Ratios")
@@ -46,15 +45,14 @@ if page == "🏠 Accueil & Recherche":
     if ticker_final:
         try:
             stock = yf.Ticker(ticker_final)
-            # On récupère les infos une seule fois pour éviter le blocage
-            info = stock.info
-            prix = info.get('currentPrice', 0)
-            devise = info.get('currency', 'EUR')
+            # Utilisation de fast_info pour le prix (évite les blocages)
+            price = stock.fast_info['last_price']
+            currency = stock.fast_info['currency']
+            
+            st.header(f"{choix}")
+            st.subheader(f"{price:.2f} {currency}")
 
-            st.header(f"{info.get('longName', choix)}")
-            st.subheader(f"{prix:.2f} {devise}")
-
-            # --- GRAPHIQUE INCROYABLE ---
+            # --- GRAPHIQUE INCROYABLE (Vérifié) ---
             p_map = {"1J": "1d", "5J": "5d", "1M": "1mo", "1A": "1y", "MAX": "max"}
             sel_p = st.select_slider("Période", options=list(p_map.keys()), value="1A")
             hist = stock.history(period=p_map[sel_p])
@@ -69,6 +67,7 @@ if page == "🏠 Accueil & Recherche":
 
             # --- RATIOS (PER, ROE) ---
             st.divider()
+            info = stock.info # Appel unique ici
             m1, m2, m3 = st.columns(3)
             m1.metric("PER Actuel", f"{info.get('trailingPE', 0):.2f}x")
             m2.metric("Rentabilité (ROE)", f"{info.get('returnOnEquity', 0)*100:.2f}%")
@@ -81,12 +80,11 @@ if page == "🏠 Accueil & Recherche":
                 st.bar_chart(ebe)
             except:
                 st.write("Données financières momentanément indisponibles.")
-
         except Exception:
-            st.error("⚠️ Trop de requêtes. Attendez 30 secondes ou vérifiez la connexion.")
+            st.error("⚠️ Trop de requêtes à la suite. Attendez 30 secondes.")
 
 # ==========================================
-# PAGE 2 : LE FLUX & ANALYSE IA
+# PAGE 2 : LE FLUX & ANALYSE IA (Version Stable)
 # ==========================================
 elif page == "📰 Le Flux & Analyse IA":
     st.title("📰 Le Journal Jules Trading")
@@ -96,14 +94,19 @@ elif page == "📰 Le Flux & Analyse IA":
     for tab, t_code in zip(tabs, flux_map.values()):
         with tab:
             try:
+                # Récupération sécurisée des news
                 news_list = yf.Ticker(t_code).news
                 if news_list:
                     for n in news_list[:6]:
-                        with st.expander(f"📌 {n.get('title')}", expanded=True):
-                            sentiment, explanation = get_ia_sentiment(n.get('title'))
-                            c1, c2 = st.columns([1, 2])
-                            with c1: st.info(f"**IA : {sentiment}**")
-                            with c2: st.write(f"💡 {explanation}")
-                            st.caption(f"Source: {n.get('publisher')} | [Lire l'original]({n.get('link')})")
-                else: st.write("Aucune news trouvée.")
-            except: st.error("Flux indisponible pour le moment.")
+                        title = n.get('title')
+                        if title: # On ne traite que si le titre existe
+                            with st.expander(f"📌 {title}", expanded=True):
+                                sentiment, explanation = get_ia_sentiment(title)
+                                c1, c2 = st.columns([1, 2])
+                                with c1: st.info(f"**IA : {sentiment}**")
+                                with c2: st.write(f"💡 {explanation}")
+                                st.caption(f"Source: {n.get('publisher')} | [Lien]({n.get('link')})")
+                else:
+                    st.write("Flux vide ou en attente de mise à jour.")
+            except:
+                st.error("Flux indisponible. Yahoo limite l'accès, réessayez dans un instant.")
