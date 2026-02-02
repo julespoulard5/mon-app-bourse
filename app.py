@@ -6,9 +6,14 @@ import plotly.graph_objects as go
 # Configuration Jules Trading
 st.set_page_config(page_title="Jules Trading", layout="wide")
 
-st.title("💹 Jules Trading")
+# --- BARRE LATÉRALE (NAVIGATION) ---
+with st.sidebar:
+    st.title("👨‍💻 Jules Trading")
+    page = st.radio("Menu", ["🏠 Accueil & Recherche", "📰 Actualités du Jour"])
+    st.markdown("---")
+    st.caption("Version 2.0 - 2026")
 
-# --- 1. BASE DE DONNÉES DE RECHERCHE (STREMLIT SELECTBOX) ---
+# --- FONCTION RECHERCHE DYNAMIQUE ---
 @st.cache_data
 def get_stock_list():
     return {
@@ -20,62 +25,56 @@ def get_stock_list():
         "Bitcoin": "BTC-USD", "Ethereum": "ETH-USD", "Solana": "SOL-USD"
     }
 
-stock_db = get_stock_list()
-
-# Barre de recherche avec autocomplétion
-choix = st.selectbox(
-    "🔍 Rechercher une action (Tapez les premières lettres)...",
-    options=list(stock_db.keys()),
-    index=None,
-    placeholder="Ex: Apple, LVMH, Tesla..."
-)
-
-ticker_final = stock_db[choix] if choix else None
-
-# --- 2. ACCUEIL : TOP VOLATILITÉ (SI PAS DE RECHERCHE) ---
-if not ticker_final:
-    st.markdown("### 🔥 Opportunités du jour")
+# ==========================================
+# PAGE 1 : ACCUEIL & RECHERCHE
+# ==========================================
+if page == "🏠 Accueil & Recherche":
+    st.title("💹 Recherche d'Actions")
     
-    @st.cache_data(ttl=3600)
-    def get_market_movers():
-        tickers = ["AAPL", "TSLA", "NVDA", "MC.PA", "NFLX", "BTC-USD", "OR.PA", "AMZN"]
-        data = yf.download(tickers, period="2d", interval="1d", group_by='ticker', progress=False)
-        movers = []
-        for t in tickers:
-            try:
-                h = data[t]
-                var = ((h['Close'].iloc[-1] - h['Close'].iloc[-2]) / h['Close'].iloc[-2]) * 100
-                movers.append({'Ticker': t, 'Variation': var, 'Prix': h['Close'].iloc[-1]})
-            except: continue
-        return pd.DataFrame(movers).sort_values(by='Variation', ascending=False)
+    stock_db = get_stock_list()
+    choix = st.selectbox(
+        "🔍 Rechercher un titre...",
+        options=list(stock_db.keys()),
+        index=None,
+        placeholder="Tapez pour filtrer (ex: Apple, LVMH...)"
+    )
+    ticker_final = stock_db[choix] if choix else None
 
-    try:
+    if not ticker_final:
+        # --- TOP VOLATILITÉ ---
+        st.markdown("### 🔥 Opportunités du jour")
+        @st.cache_data(ttl=600)
+        def get_market_movers():
+            tickers = ["AAPL", "TSLA", "NVDA", "MC.PA", "NFLX", "BTC-USD", "OR.PA", "AMZN"]
+            movers = []
+            for t in tickers:
+                try:
+                    h = yf.download(t, period="5d", interval="1d", progress=False)
+                    if len(h) >= 2:
+                        p_now = float(h['Close'].iloc[-1])
+                        p_prev = float(h['Close'].iloc[-2])
+                        var = ((p_now - p_prev) / p_prev) * 100
+                        movers.append({'Ticker': t, 'Variation': var, 'Prix': p_now})
+                except: continue
+            return pd.DataFrame(movers).sort_values(by='Variation', ascending=False)
+
         df_movers = get_market_movers()
         c_up, c_down = st.columns(2)
         with c_up:
-            st.write("📈 **Plus fortes hausses**")
             for _, r in df_movers.head(4).iterrows():
                 st.success(f"**{r['Ticker']}** : +{r['Variation']:.2f}% ({r['Prix']:.2f} €/$)")
         with c_down:
-            st.write("📉 **Plus fortes baisses**")
             for _, r in df_movers.tail(4).iloc[::-1].iterrows():
                 st.error(f"**{r['Ticker']}** : {r['Variation']:.2f}% ({r['Prix']:.2f} €/$)")
-    except:
-        st.info("Chargement des données de marché...")
-
-# --- 3. ANALYSE DÉTAILLÉE ---
-else:
-    try:
+    
+    else:
+        # --- ANALYSE DÉTAILLÉE ---
         stock = yf.Ticker(ticker_final)
         info = stock.info
         prix = info.get('currentPrice', 0)
-        devise = info.get('currency', 'EUR')
-
-        # Header
         st.header(f"{info.get('longName', ticker_final)}")
-        st.subheader(f"{prix:.2f} {devise}")
+        st.subheader(f"{prix:.2f} {info.get('currency', 'EUR')}")
 
-        # Graphique interactif (Style Trade Republic)
         p_map = {"1J": "1d", "5J": "5d", "1M": "1mo", "1A": "1y", "MAX": "max"}
         sel_p = st.select_slider("Période", options=list(p_map.keys()), value="1A")
         
@@ -83,47 +82,40 @@ else:
         if not hist.empty:
             perf = (hist['Close'] / hist['Close'].iloc[0] - 1) * 100
             couleur = '#00C805' if perf.iloc[-1] >= 0 else '#FF3B30'
-            
             fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=hist.index, y=hist['Close'], 
-                line=dict(color=couleur, width=2), 
-                fill='tozeroy',
-                hovertemplate="<b>Date:</b> %{x}<br><b>Prix:</b> %{y:.2f} " + devise + "<extra></extra>"
-            ))
-            fig.update_layout(
-                template="plotly_dark", 
-                hovermode="x unified", 
-                dragmode=False, 
-                height=400, 
-                margin=dict(l=0,r=0,t=0,b=0),
-                xaxis=dict(showgrid=False),
-                yaxis=dict(side="right")
-            )
+            fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], line=dict(color=couleur, width=2.5), fill='tozeroy', 
+                                     fillcolor=f"rgba(0, 200, 5, 0.15)" if couleur == '#00C805' else "rgba(255, 59, 48, 0.15)"))
+            fig.update_layout(template="plotly_dark", hovermode="x unified", dragmode=False, height=450, margin=dict(l=0,r=0,t=0,b=0))
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-        # Objectifs IA et Stats
-        st.divider()
-        col1, col2, col3 = st.columns(3)
-        target = info.get('targetMeanPrice', prix)
-        
-        col1.metric("Objectif Prudent", f"{target*0.95:.2f} {devise}")
-        col2.metric("Objectif Équilibré", f"{target:.2f} {devise}")
-        col3.metric("Objectif Offensif", f"{target*1.10:.2f} {devise}")
+# ==========================================
+# PAGE 2 : ACTUALITÉS
+# ==========================================
+elif page == "📰 Actualités du Jour":
+    st.title("📰 Le Journal de Jules Trading")
+    st.write("Retrouvez ici l'actualité mondiale et financière filtrée.")
 
-        st.markdown("---")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("PER Actuel", f"{info.get('trailingPE', 0):.2f}x")
-        m2.metric("Rentabilité (ROE)", f"{info.get('returnOnEquity', 0)*100:.2f}%")
-        m3.metric("PER Moyen (5 ans)", f"{info.get('forwardPE', 0):.2f}x")
+    tab_fr, tab_int, tab_fin = st.tabs(["🇫🇷 France & USA", "🌎 International", "💰 Finance"])
 
-        # Graphique EBE (EBITDA)
-        st.subheader("📊 Évolution de l'EBE (EBITDA)")
-        try:
-            ebe = stock.quarterly_financials.loc['EBITDA'].head(10)[::-1]
-            st.bar_chart(ebe)
-        except:
-            st.write("Données d'EBE indisponibles pour ce titre.")
+    with tab_fr:
+        st.subheader("Actualité France & États-Unis")
+        # News via un ticker global (S&P 500) pour avoir les tendances US/FR
+        news_global = yf.Ticker("^GSPC").news
+        for n in news_global[:5]:
+            st.markdown(f"**{n['title']}**")
+            st.caption(f"Source: {n['publisher']} | [Lire l'article]({n['link']})")
 
-    except Exception as e:
-        st.error(f"Erreur lors de la récupération : {e}")
+    with tab_int:
+        st.subheader("Monde & Géopolitique")
+        # Utilisation de Gold ou Oil pour les news internationales
+        news_int = yf.Ticker("GC=F").news
+        for n in news_int[:5]:
+            st.markdown(f"**{n['title']}**")
+            st.caption(f"Source: {n['publisher']} | [Lien]({n['link']})")
+
+    with tab_fin:
+        st.subheader("Marchés Financiers")
+        news_fin = yf.Ticker("EURUSD=X").news
+        for n in news_fin[:5]:
+            st.markdown(f"**{n['title']}**")
+            st.caption(f"Source: {n['publisher']} | [Lien]({n['link']})")
